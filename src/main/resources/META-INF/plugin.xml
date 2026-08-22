@@ -1,11 +1,10 @@
-<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <id>com.github.supernovan.geminiagent</id>
-    <name>gemini-agent</name>
-    <vendor>supernovan</vendor>
+    <id>se.kodasmart.smartagent</id>
+    <name>SmartAgent</name>
+    <vendor>Code Smart AB</vendor>
     <description><![CDATA[
-        <p><b>gemini-agent</b> is a repository that provides a pure template to make it easier to create a new plugin project.</p>
-        <p>The main goal of this template is to speed up the setup phase of plugin development for both new and experienced developers by preconfiguring the project scaffold and CI, linking to the proper documentation pages, and keeping everything organized.</p>
+        <p><b>SmartAgent</b> is an autonomous AI coding assistant..</p>
+        <p>Features intelligent project repo-mapping, local workspace file tools, autonomous planning, and custom architectural rule enforcement.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -13,7 +12,12 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.supernovan.geminiagent.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <postStartupActivity implementation="com.github.supernovan.geminiagent.startup.MyProjectActivity" />
+        <toolWindow factoryClass="se.kodasmart.smartagent.toolWindow.AgentToolWindowFactory"
+                    id="GeminiAgent"
+                    displayName="Gemini Agent"
+                    anchor="right"
+                    icon="/icons/gemini_icon.svg"/>
+
+        <postStartupActivity implementation="se.kodasmart.smartagent.startup.MyProjectActivity" />
     </extensions>
 </idea-plugin>
