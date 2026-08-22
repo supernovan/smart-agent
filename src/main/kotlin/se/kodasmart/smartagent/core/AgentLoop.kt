@@ -1,11 +1,5 @@
 package se.kodasmart.smartagent.core
 
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import se.kodasmart.smartagent.api.client.GeminiApiClient
-import se.kodasmart.smartagent.api.models.FunctionResponse
-import se.kodasmart.smartagent.api.models.Part
 import se.kodasmart.smartagent.llm.LlmProvider
 import se.kodasmart.smartagent.llm.models.LlmMessage
 import se.kodasmart.smartagent.llm.models.LlmResponse
@@ -13,12 +7,21 @@ import se.kodasmart.smartagent.llm.models.MessageRole
 import se.kodasmart.smartagent.tools.CodeWorkspaceTools
 import java.io.File
 
-class AgentLoop(
-    private val codeWorkspaceTools: CodeWorkspaceTools,
-    private val llmProvider: LlmProvider,
+abstract class AgentLoop(
+    protected val codeWorkspaceTools: CodeWorkspaceTools,
+    protected val llmProvider: LlmProvider
 ) {
-
     val conversationHistory = mutableListOf<LlmMessage>()
+
+    // Abstrakt beteende som subklasserna styr över
+    protected abstract fun getExecutionRules(): String
+    protected abstract fun buildInitialExecutionHistory(systemPrompt: String, userMessage: String): List<LlmMessage>
+    protected abstract fun handleTextResponse(
+        modelResponse: LlmResponse,
+        iterationCount: Int,
+        maxIterations: Int,
+        onToolAction: (String) -> Unit
+    ): Boolean
 
     suspend fun runLoop(
         userMessage: String,
@@ -48,11 +51,11 @@ class AgentLoop(
                 "CODE STYLE: Follow standard Kotlin conventions."
             }
 
-            val geminiAgentDir = File(basePath, ".gemini-agent")
+            val smartAgentDir = File(basePath, ".smart-agent")
             val rulesBuilder = java.lang.StringBuilder()
 
-            if (geminiAgentDir.exists() && geminiAgentDir.isDirectory) {
-                val ruleFiles = geminiAgentDir.listFiles { file -> file.isFile && !file.isHidden }
+            if (smartAgentDir.exists() && smartAgentDir.isDirectory) {
+                val ruleFiles = smartAgentDir.listFiles { file -> file.isFile && !file.isHidden }
                 ruleFiles?.forEach { file ->
                     rulesBuilder.append("\n--- Rules from ${file.name} ---\n")
                     rulesBuilder.append(file.readText().take(3000))
@@ -74,10 +77,10 @@ class AgentLoop(
             
             PROJECT FILE STRUCTURE (Scope: ${if (relevantPaths.isEmpty()) "ALL" else "FILTERED"}):
             $repoMap
-        """.trimIndent()
+            """.trimIndent()
 
             onStatusUpdate("Thinking about creating a plan...")
-
+            val planningRules = loadPromptFromFile("planning-rules.md")
 
             val planningPrompt = """
             $baseContext
@@ -87,10 +90,7 @@ class AgentLoop(
             
             TASK: Write a concise, step-by-step plan to solve the user's request. 
             
-            CRITICAL RULES FOR YOUR PLAN:
-            1. Specify EXACT file names only (e.g., 'SalaryService.kt'), NOT full paths. Do not include 'src/main/...' or package names in the file references.
-            2. Verify that the file names you propose actually exist in the PROJECT FILE STRUCTURE.
-            3. Do NOT write the actual source code. Just write the logical steps.
+            $planningRules
             """.trimIndent()
 
             val planningHistory = listOf(
@@ -105,8 +105,7 @@ class AgentLoop(
                 modelName = modelName,
                 useTools = false,
             )
-            val planText = planResponse.text
-                ?: throw Exception("Agent failed to generate plan.")
+            val planText = planResponse.text ?: throw Exception("Agent failed to generate plan.")
 
             fun trackUsage(response: LlmResponse) {
                 response.usage?.let { meta ->
@@ -120,8 +119,7 @@ class AgentLoop(
             trackUsage(planResponse)
 
             onStatusUpdate("Waiting for approval of the plan...")
-            val approvedPlan =
-                onPlanGenerated(planText) ?: return "The user cancelled the plan."
+            val approvedPlan = onPlanGenerated(planText) ?: return "The user cancelled the plan."
 
             onToolAction("📋 **Approved Plan:**\n$approvedPlan")
             onStatusUpdate("Executing said plan...")
@@ -129,33 +127,15 @@ class AgentLoop(
             val executionSystemPrompt = """
             $baseContext
             
-            RULES FOR EXECUTION:
-            1. When using tools like 'getFileContent' or 'insertCode', provide ONLY the exact file name (e.g., 'SalaryService.kt').
-            2. Stick strictly to the approved plan below.
-            3. Minimize tool calls. Directly read the files you need, then perform the changes immediately.
-            4. When creating or modifying code, strictly follow the CODE STYLE and PROJECT SPECIFIC RULES.
-            5. CRITICAL: Once you have successfully executed the final step in the plan, STOP immediately. Do NOT re-read files to double-check your work. Output a text summary of what you did to end the execution.
-            
             --- APPROVED PLAN ---
             $approvedPlan
             ---------------------
-        """.trimIndent()
+            
+            ${getExecutionRules()}
+            """.trimIndent()
 
             conversationHistory.clear()
-            conversationHistory.add(
-                LlmMessage(
-                    role = MessageRole.USER,
-                    text = executionSystemPrompt
-                )
-            )
-            conversationHistory.add(
-                LlmMessage(
-                    role = MessageRole.USER,
-                    text = userMessage
-                )
-            )
-
-            var isTaskComplete = false
+            conversationHistory.addAll(buildInitialExecutionHistory(executionSystemPrompt, userMessage))
 
             while (iterationCount < maxIterations) {
                 iterationCount++
@@ -175,43 +155,43 @@ class AgentLoop(
                     )
                 )
 
-
                 trackUsage(modelResponse)
 
                 if (modelResponse.toolCalls.isNotEmpty()) {
-                    val toolCall = modelResponse.toolCalls.first()
-                    val functionName = toolCall.name
-                    val args = toolCall.arguments
+                    modelResponse.toolCalls.forEach { toolCall ->
+                        val functionName = toolCall.name
+                        val args = toolCall.arguments
 
-                    val argsString = args.map { "${it.key}: ${it.value}" }.joinToString(", ")
-                    onToolAction("> Agent called for: `$functionName($argsString)`")
+                        val argsString = args.map { "${it.key}: ${it.value}" }.joinToString(", ")
+                        onToolAction("> Agent called for: `$functionName($argsString)`")
 
-                    val targetFile = args["fileName"] ?: args["relativePath"] ?: "projektet"
+                        val targetFile = args["fileName"] ?: args["relativePath"] ?: "projektet"
 
-                    when (functionName) {
-                        "getFileContent" -> onStatusUpdate("Reading the file $targetFile...")
-                        "replaceCodeBlock", "insertCode" -> onStatusUpdate("Modifying code in $targetFile...")
-                        "createFile" -> onStatusUpdate("Creating the file $targetFile...")
-                        else -> onStatusUpdate("Running tool: $functionName...")
-                    }
+                        when (functionName) {
+                            "getFileContent" -> onStatusUpdate("Reading the file $targetFile...")
+                            "replaceCodeBlock", "insertCode" -> onStatusUpdate("Modifying code in $targetFile...")
+                            "createFile" -> onStatusUpdate("Creating the file $targetFile...")
+                            else -> onStatusUpdate("Running tool: $functionName...")
+                        }
 
-                    val resultString = executeFunctionCall(functionName, args)
+                        val resultString = executeFunctionCall(functionName, args)
+                        val shortResult = if (resultString.length > 100) resultString.substring(0, 100) + "..." else resultString
+                        onToolAction("> Response from IntelliJ: *$shortResult*")
 
-                    val shortResult =
-                        if (resultString.length > 100) resultString.substring(0, 100) + "..." else resultString
-                    onToolAction("> Response from IntelliJ: *$shortResult*")
-
-                    conversationHistory.add(
-                        LlmMessage(
-                            role = MessageRole.TOOL,
-                            toolName = functionName,
-                            toolResult = resultString
+                        conversationHistory.add(
+                            LlmMessage(
+                                role = MessageRole.TOOL,
+                                toolName = functionName,
+                                toolResult = resultString,
+                                toolCallId = toolCall.thoughtSignature
+                            )
                         )
-                    )
-
+                    }
                 } else if (modelResponse.text != null) {
-                    isTaskComplete = true
-                    return modelResponse.text
+                    val isComplete = handleTextResponse(modelResponse, iterationCount, maxIterations, onToolAction)
+                    if (isComplete) {
+                        return modelResponse.text
+                    }
                 }
             }
 
@@ -229,57 +209,50 @@ class AgentLoop(
         }
     }
 
-    private fun executeFunctionCall(functionName: String, args: Map<String, String>): String {
+    protected open fun executeFunctionCall(functionName: String, args: Map<String, String>): String {
         return try {
             when (functionName) {
                 "getFileContent" -> {
-                    val fileName = args["fileName"]
-                        ?: throw IllegalArgumentException("Missing fileName")
+                    val fileName = args["fileName"] ?: throw IllegalArgumentException("Missing fileName")
                     codeWorkspaceTools.getFileContent(fileName)
                 }
-
                 "insertCode" -> {
-                    val fileName = args["fileName"]
-                        ?: throw IllegalArgumentException("Missing fileName")
-                    val offset = args["offset"]?.toIntOrNull()
-                        ?: throw IllegalArgumentException("Missing or invalid offset")
-                    val newCode = args["newCode"]
-                        ?: throw IllegalArgumentException("Missing newCode")
-
+                    val fileName = args["fileName"] ?: throw IllegalArgumentException("Missing fileName")
+                    val offset = args["offset"]?.toIntOrNull() ?: throw IllegalArgumentException("Missing or invalid offset")
+                    val newCode = args["newCode"] ?: throw IllegalArgumentException("Missing newCode")
                     codeWorkspaceTools.insertCode(fileName, offset, newCode)
                 }
-
                 "replaceCodeBlock" -> {
-                    val fileName = args["fileName"]
-                        ?: throw IllegalArgumentException("Missing fileName")
-                    val searchString = args["searchString"]
-                        ?: throw IllegalArgumentException("Missing searchString")
-                    val replacementString = args["replacementString"]
-                        ?: throw IllegalArgumentException("Missing replacementString")
-
+                    val fileName = args["fileName"] ?: throw IllegalArgumentException("Missing fileName")
+                    val searchString = args["searchString"] ?: throw IllegalArgumentException("Missing searchString")
+                    val replacementString = args["replacementString"] ?: throw IllegalArgumentException("Missing replacementString")
                     codeWorkspaceTools.replaceCodeBlock(fileName, searchString, replacementString)
                     "Success: Code block replaced in $fileName."
                 }
-
                 "createFile" -> {
-                    val path = args["relativePath"]
-                        ?: throw IllegalArgumentException("Missing relativePath")
-                    val content = args["content"]
-                        ?: throw IllegalArgumentException("Missing content")
-
+                    val path = args["relativePath"] ?: throw IllegalArgumentException("Missing relativePath")
+                    val content = args["content"] ?: throw IllegalArgumentException("Missing content")
                     codeWorkspaceTools.createFile(path, content)
                 }
-
                 "listDirectory" -> {
-                    val path = args["directoryPath"]
-                        ?: throw IllegalArgumentException("Missing directoryPath")
+                    val path = args["directoryPath"] ?: throw IllegalArgumentException("Missing directoryPath")
                     codeWorkspaceTools.listDirectory(path)
                 }
-
                 else -> "Error: Unknown function $functionName"
             }
         } catch (e: Exception) {
             "Error executing $functionName: ${e.message}"
+        }
+    }
+
+    protected fun loadPromptFromFile(relativePath: String): String {
+        val basePath = codeWorkspaceTools.getBasePath() ?: return ""
+        val file = File(basePath, ".smart-agent/$relativePath")
+
+        return if (file.exists() && file.isFile) {
+            file.readText().trim()
+        } else {
+            ""
         }
     }
 }

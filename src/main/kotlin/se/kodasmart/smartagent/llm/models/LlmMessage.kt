@@ -5,12 +5,14 @@ data class LlmMessage(
     val text: String? = null,
     val toolCalls: List<LlmToolCall> = emptyList(),
     val toolResult: String? = null,
-    val toolName: String? = null
+    val toolName: String? = null,
+    val toolCallId: String? = null,
 )
 
 data class LlmToolCall(
     val name: String,
-    val arguments: Map<String, String>
+    val arguments: Map<String, String>,
+    val thoughtSignature: String? = null
 )
 
 data class LlmUsage(

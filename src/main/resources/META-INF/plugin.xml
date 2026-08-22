@@ -9,14 +9,12 @@
 
     <depends>com.intellij.modules.platform</depends>
 
-    <resource-bundle>messages.MyBundle</resource-bundle>
-
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="se.kodasmart.smartagent.toolWindow.AgentToolWindowFactory"
-                    id="GeminiAgent"
-                    displayName="Gemini Agent"
+                    id="SmartAgent"
+                    displayName="Smart Agent"
                     anchor="right"
-                    icon="/icons/gemini_icon.svg"/>
+                    icon="/icons/smart_agent_icon.svg"/>
 
         <postStartupActivity implementation="se.kodasmart.smartagent.startup.MyProjectActivity" />
     </extensions>

@@ -1,6 +1,6 @@
 <!-- Keep a Changelog guide -> https://keepachangelog.com -->
 
-# gemini-agent Changelog
+# smart-agent Changelog
 
 ## [Unreleased]
 ### Added

@@ -1,16 +1,49 @@
 package se.kodasmart.smartagent.settings
 
+import com.intellij.credentialStore.CredentialAttributes
+import com.intellij.credentialStore.generateServiceName
+import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.ide.util.PropertiesComponent
 
 object AgentSettings {
-    private const val KEY_API_KEY = "se.kodasmart.smartagent.apikey"
-    private const val KEY_MAX_ITERATIONS = "se.kodasmart.smartagent.maxiterations"
+
+    private val CREDENTIAL_ATTRIBUTES = CredentialAttributes(
+        generateServiceName("GeminiSmartAgent", "ApiKey")
+    )
 
     var apiKey: String
-        get() = PropertiesComponent.getInstance().getValue(KEY_API_KEY, "")
-        set(value) = PropertiesComponent.getInstance().setValue(KEY_API_KEY, value)
+        get() {
+            return PasswordSafe.instance.getPassword(CREDENTIAL_ATTRIBUTES) ?: ""
+        }
+        set(value) {
+            if (value.isBlank()) {
+                PasswordSafe.instance.set(CREDENTIAL_ATTRIBUTES, null)
+            } else {
+                PasswordSafe.instance.setPassword(CREDENTIAL_ATTRIBUTES, value)
+            }
+        }
 
     var maxIterations: Int
-        get() = PropertiesComponent.getInstance().getInt(KEY_MAX_ITERATIONS, 30)
-        set(value) = PropertiesComponent.getInstance().setValue(KEY_MAX_ITERATIONS, value.toString())
+        get() {
+            return PropertiesComponent.getInstance().getInt("se.kodasmart.smartagent.maxIterations", 15)
+        }
+        set(value) {
+            PropertiesComponent.getInstance().setValue("se.kodasmart.smartagent.maxIterations", value, 15)
+        }
+
+    var providerType: String
+        get() {
+            return PropertiesComponent.getInstance().getValue("se.kodasmart.smartagent.providerType", "GEMINI")
+        }
+        set(value) {
+            PropertiesComponent.getInstance().setValue("se.kodasmart.smartagent.providerType", value)
+        }
+
+    var localLlmUrl: String
+        get() {
+            return PropertiesComponent.getInstance().getValue("se.kodasmart.smartagent.localLlmUrl", "http://localhost:11434/v1")
+        }
+        set(value) {
+            PropertiesComponent.getInstance().setValue("se.kodasmart.smartagent.localLlmUrl", value)
+        }
 }

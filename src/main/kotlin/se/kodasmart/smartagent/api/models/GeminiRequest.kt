@@ -41,7 +41,8 @@ data class GeminiError(
 
 @Serializable
 data class Candidate(
-    val content: Content
+    val content: Content,
+    val finishReason: String? = null
 )
 
 @Serializable

@@ -27,10 +27,78 @@ class GeminiProvider(
         modelName: String,
         useTools: Boolean,
     ): LlmResponse {
-        val geminiContents = history.map { it.toGeminiContent() }
+        val rawGeminiContents = mutableListOf<Content>()
+        var currentToolParts = mutableListOf<Part>()
+
+        for (msg in history) {
+            if (msg.role == MessageRole.TOOL && msg.toolName != null && msg.toolResult != null) {
+                currentToolParts.add(
+                    Part(
+                        functionResponse = FunctionResponse(
+                            name = msg.toolName,
+                            response = JsonObject(mapOf("result" to JsonPrimitive(msg.toolResult)))
+                        )
+                    )
+                )
+            } else {
+                if (currentToolParts.isNotEmpty()) {
+                    rawGeminiContents.add(Content(role = "user", parts = currentToolParts.toList()))
+                    currentToolParts.clear()
+                }
+
+                val parts = mutableListOf<Part>()
+
+                if (!msg.text.isNullOrBlank()) {
+                    parts.add(Part(text = msg.text))
+                }
+
+                if (msg.toolCalls.isNotEmpty()) {
+                    msg.toolCalls.forEach { call ->
+                        parts.add(
+                            Part(
+                                functionCall = FunctionCall(
+                                    name = call.name,
+                                    args = JsonObject(call.arguments.mapValues { JsonPrimitive(it.value) })
+                                ),
+                                thoughtSignatureSnake = call.thoughtSignature,
+                                thoughtSignature = call.thoughtSignature
+                            )
+                        )
+                    }
+                }
+
+                val geminiRole = when (msg.role) {
+                    MessageRole.USER, MessageRole.SYSTEM -> "user"
+                    MessageRole.ASSISTANT -> "model"
+                    else -> "user"
+                }
+
+                if (parts.isNotEmpty()) {
+                    rawGeminiContents.add(Content(role = geminiRole, parts = parts))
+                }
+            }
+        }
+
+        if (currentToolParts.isNotEmpty()) {
+            rawGeminiContents.add(Content(role = "user", parts = currentToolParts.toList()))
+        }
+
+        val finalGeminiContents = mutableListOf<Content>()
+        for (content in rawGeminiContents) {
+            val last = finalGeminiContents.lastOrNull()
+            if (last != null && last.role == content.role) {
+                finalGeminiContents[finalGeminiContents.lastIndex] = Content(
+                    role = last.role,
+                    parts = last.parts + content.parts
+                )
+            } else {
+                finalGeminiContents.add(content)
+            }
+        }
+
         val toolsToUse = if (useTools) GeminiToolsSchema.availableTools else emptyList()
         val response = apiClient.sendMessage(
-            history = geminiContents,
+            history = finalGeminiContents,
             modelName = modelName,
             tools = toolsToUse
         )
@@ -41,59 +109,19 @@ class GeminiProvider(
         return apiClient.getAvailableModels()
     }
 
-    private fun LlmMessage.toGeminiContent(): Content {
-        val parts = mutableListOf<Part>()
-
-        if (text != null) {
-            parts.add(Part(text = text))
-        }
-
-        if (toolCalls.isNotEmpty()) {
-            toolCalls.forEach { call ->
-                parts.add(
-                    Part(
-                        functionCall = FunctionCall(
-                            name = call.name,
-                            args = JsonObject(call.arguments.mapValues { JsonPrimitive(it.value) })
-                        )
-                    )
-                )
-            }
-        }
-
-        if (role == MessageRole.TOOL && toolName != null && toolResult != null) {
-            parts.add(
-                Part(
-                    functionResponse = FunctionResponse(
-                        name = toolName,
-                        response = JsonObject(mapOf("result" to JsonPrimitive(toolResult)))
-                    )
-                )
-            )
-        }
-
-        val geminiRole = when (role) {
-            MessageRole.USER -> "user"
-            MessageRole.ASSISTANT -> "model"
-            MessageRole.TOOL -> "function"
-            MessageRole.SYSTEM -> "user"
-        }
-
-        return Content(role = geminiRole, parts = parts)
-    }
-
     private fun GeminiResponse.toLlmResponse(): LlmResponse {
-        val parts = this.candidates?.firstOrNull()?.content?.parts ?: emptyList()
+        val candidate = this.candidates?.firstOrNull()
+        val parts = candidate?.content?.parts ?: emptyList()
 
-        val textParts = parts.mapNotNull { it.text }
+        val textParts = parts.mapNotNull { it.text }.filter { it.isNotBlank() }
         val combinedText = if (textParts.isNotEmpty()) textParts.joinToString("\n") else null
 
         val extractedToolCalls = parts.mapNotNull { part ->
             part.functionCall?.let { fc ->
                 LlmToolCall(
                     name = fc.name,
-                    // Översätt kotlinx.serialization JsonObject tillbaka till vår enkla Map<String, String>
-                    arguments = fc.args.mapValues { it.value.jsonPrimitive.content }
+                    arguments = fc.args.mapValues { it.value.jsonPrimitive.content },
+                    thoughtSignature = part.thoughtSignature ?: part.thoughtSignatureSnake
                 )
             }
         }
@@ -105,6 +133,15 @@ class GeminiProvider(
                 thinkingTokens = meta.thoughtsTokenCount ?: 0,
                 cachedTokens = meta.cachedContentTokenCount ?: 0
             )
+        }
+
+        if (combinedText == null && extractedToolCalls.isEmpty()) {
+            val finishReason = candidate?.finishReason ?: "UNKNOWN"
+            if (finishReason != "STOP") {
+                throw Exception("Gemini avbröt genereringen. Orsak: $finishReason")
+            } else {
+                throw Exception("Gemini returnerade varken text eller verktygsanrop (finishReason: STOP).")
+            }
         }
 
         return LlmResponse(
