@@ -24,5 +24,10 @@
 
 The agent operates on a `Planning` -> `Execution` loop.
 
+## Roadmap
+
+* Will try to make local llm work better with the plugin
+* Adding security limits so you can blacklist/whitelist folders that are okay to read/use
+
 ---
 *Built by Code Smart AB.*
