@@ -129,11 +129,12 @@ class ChatPanel(
         inputField.inputMap.put(shiftEnterStroke, "insert-break")
     }
 
-    private fun getActiveProvider(): LlmProvider {
+    fun getActiveProvider(): LlmProvider {
+        val timeout = AgentSettings.timeoutSeconds
         return if (AgentSettings.providerType == "LOCAL") {
-            LocalLlmProvider(AgentSettings.localLlmUrl)
+            LocalLlmProvider(AgentSettings.localLlmUrl, timeout)
         } else {
-            GeminiProvider(AgentSettings.apiKey)
+            GeminiProvider(AgentSettings.apiKey, timeout)
         }
     }
 
@@ -206,14 +207,14 @@ class ChatPanel(
         if (selectedModel == null) {
             SwingUtilities.invokeLater {
                 statusLabel.text = "Error: No model selected."
-                appendMessage("System Error", "Ingen modell vald. Kontrollera anslutningen.", false)
+                appendMessage("System Error", "No model is currently chosen. Check your network connection.", false)
             }
             return
         }
 
         if (activeJob?.isActive == true) {
             activeJob?.cancel()
-            statusLabel.text = "Avbruten."
+            statusLabel.text = "Cancel."
             sendButton.text = "Send"
             inputField.isEnabled = true
             return
@@ -237,11 +238,11 @@ class ChatPanel(
         try {
             val isLocal = AgentSettings.providerType == "LOCAL"
             if (!isLocal && AgentSettings.apiKey.isBlank()) {
-                SwingUtilities.invokeLater { appendMessage("System Error", "API Key saknas.", false) }
+                SwingUtilities.invokeLater { appendMessage("System Error", "API Key is missing.", false) }
                 return
             }
             if (isLocal && AgentSettings.localLlmUrl.isBlank()) {
-                SwingUtilities.invokeLater { appendMessage("System Error", "Lokal LLM URL saknas.", false) }
+                SwingUtilities.invokeLater { appendMessage("System Error", "Local LLM URL is missing.", false) }
                 return
             }
 
@@ -264,9 +265,9 @@ class ChatPanel(
                 onPlanGenerated = { generatedPlan -> showPlanDialog(generatedPlan) }
             )
 
-            SwingUtilities.invokeLater { statusLabel.text = "Klar." }
+            SwingUtilities.invokeLater { statusLabel.text = "Done." }
         } catch (e: CancellationException) {
-            SwingUtilities.invokeLater { statusLabel.text = "Avbruten." }
+            SwingUtilities.invokeLater { statusLabel.text = "Cancelled." }
         } catch (e: Exception) {
             SwingUtilities.invokeLater { appendMessage("Error", e.message ?: "Okänt fel", false) }
         } finally {

@@ -31,6 +31,7 @@ class SettingsPanel(
     private val apiKeyField = JBPasswordField().apply { columns = 25 }
     private val localUrlField = JBTextField().apply { columns = 25 }
     private val iterationsSpinner = JSpinner(SpinnerNumberModel(1, 1, 100, 1))
+    val timeoutSpinner = JSpinner(SpinnerNumberModel(AgentSettings.timeoutSeconds, 10, 600, 10))
     private val saveButton = JButton("Save Settings")
     private val saveStatusLabel = JLabel(" ").apply { foreground = JBColor.LIGHT_GRAY }
     private val apiKeyPanel = JPanel(BorderLayout())
@@ -40,6 +41,7 @@ class SettingsPanel(
         providerSelector.selectedItem = AgentSettings.providerType
         localUrlField.text = AgentSettings.localLlmUrl
         iterationsSpinner.value = AgentSettings.maxIterations
+        timeoutSpinner.value = AgentSettings.timeoutSeconds
 
         coroutineScope.launch {
             val savedKey = AgentSettings.apiKey
@@ -71,6 +73,13 @@ class SettingsPanel(
                 alignmentX = Component.LEFT_ALIGNMENT
             }
             add(iterPanel)
+            add(Box.createVerticalStrut(15))
+            val timeoutPanel = JPanel(FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply {
+                add(JLabel("API Timeout (seconds): "))
+                add(timeoutSpinner)
+            }
+            timeoutPanel.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+            add(timeoutPanel)
             add(Box.createVerticalStrut(15))
 
             val actionPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
@@ -129,6 +138,7 @@ class SettingsPanel(
         val newKey = String(apiKeyField.password).trim()
         val newUrl = localUrlField.text.trim()
         val newIterations = iterationsSpinner.value as Int
+        val newTimeout = timeoutSpinner.value as Int
 
         saveButton.isEnabled = false
 
@@ -137,6 +147,7 @@ class SettingsPanel(
             AgentSettings.apiKey = newKey
             AgentSettings.localLlmUrl = newUrl
             AgentSettings.maxIterations = newIterations
+            AgentSettings.timeoutSeconds = newTimeout
 
             SwingUtilities.invokeLater {
                 saveStatusLabel.text = "Saved successfully!"

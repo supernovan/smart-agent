@@ -35,13 +35,14 @@ import se.kodasmart.smartagent.llm.models.LlmToolCall
 import se.kodasmart.smartagent.llm.models.LlmUsage
 import se.kodasmart.smartagent.llm.models.MessageRole
 
-class LocalLlmProvider(private val baseUrl: String) : LlmProvider {
+class LocalLlmProvider(private val baseUrl: String, private val timeoutSeconds: Int = 120) : LlmProvider {
 
     private val httpClient = HttpClient(CIO) {
         install(HttpTimeout) {
-            requestTimeoutMillis = 120_000
+            val timeoutMillis = timeoutSeconds * 1000L
+            requestTimeoutMillis = timeoutMillis
             connectTimeoutMillis = 15_000
-            socketTimeoutMillis = 120_000
+            socketTimeoutMillis = timeoutMillis
         }
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })

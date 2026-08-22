@@ -14,31 +14,21 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import se.kodasmart.smartagent.api.models.Content
+import se.kodasmart.smartagent.api.models.FunctionDeclaration
 import se.kodasmart.smartagent.api.models.GeminiRequest
 import se.kodasmart.smartagent.api.models.GeminiResponse
 import se.kodasmart.smartagent.api.models.GeminiToolsSchema
 import se.kodasmart.smartagent.api.models.ModelListResponse
 import se.kodasmart.smartagent.api.models.ToolDeclaration
-import io.ktor.client.plugins.logging.Logging
-import io.ktor.client.plugins.logging.Logger
-import io.ktor.client.plugins.logging.LogLevel
-import se.kodasmart.smartagent.api.models.FunctionDeclaration
 
-class GeminiApiClient(private val apiKey: String) {
+class GeminiApiClient(private val apiKey: String, private val timeoutSeconds: Int = 120) {
 
     private val httpClient = HttpClient(CIO) {
         install(HttpTimeout) {
-            requestTimeoutMillis = 120_000
+            val timeoutMillis = timeoutSeconds * 1000L
+            requestTimeoutMillis = timeoutMillis
             connectTimeoutMillis = 15_000
-            socketTimeoutMillis = 120_000
-        }
-        install(Logging) {
-            logger = object : Logger {
-                override fun log(message: String) {
-                    println("KTOR-LOGG: $message")
-                }
-            }
-            level = LogLevel.ALL
+            socketTimeoutMillis = timeoutMillis
         }
         install(ContentNegotiation) {
             json(Json {

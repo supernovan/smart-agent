@@ -46,4 +46,8 @@ object AgentSettings {
         set(value) {
             PropertiesComponent.getInstance().setValue("se.kodasmart.smartagent.localLlmUrl", value)
         }
+
+    var timeoutSeconds: Int
+        get() = PropertiesComponent.getInstance().getInt("se.kodasmart.smartagent.timeoutSeconds", 120)
+        set(value) = PropertiesComponent.getInstance().setValue("se.kodasmart.smartagent.timeoutSeconds", value, 120)
 }

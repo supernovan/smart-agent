@@ -16,11 +16,9 @@ import se.kodasmart.smartagent.llm.models.LlmToolCall
 import se.kodasmart.smartagent.llm.models.LlmUsage
 import se.kodasmart.smartagent.llm.models.MessageRole
 
-class GeminiProvider(
-    private val apiKey: String
-) : LlmProvider {
+class GeminiProvider(private val apiKey: String, private val timeoutSeconds: Int = 120) : LlmProvider {
 
-    private val apiClient = GeminiApiClient(apiKey = apiKey)
+    private val apiClient = GeminiApiClient(apiKey = apiKey, timeoutSeconds = timeoutSeconds)
 
     override suspend fun sendMessage(
         history: List<LlmMessage>,
